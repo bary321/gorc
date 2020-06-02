@@ -2,7 +2,6 @@ package gorc
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"strconv"
@@ -10,30 +9,30 @@ import (
 	"time"
 )
 
-var group sync.WaitGroup
-var pi chan string = make(chan string, 2)
-var exit chan bool = make(chan bool, 1)
-var exitSub chan bool = make(chan bool, 1)
-
-func Download(url string) (err error) {
-	flag.Parse()
-	fl := assign(url)
-	if !fl {
-		return errors.New("")
+func Download(url string, thread int64, manual bool, root string, blockSize int64, attempt int, filename string) (err error) {
+	//flag.Parse()
+	var group sync.WaitGroup
+	Context := assign(url, thread, manual, root, blockSize, attempt, filename)
+	if Context == nil {
+		return errors.New("not support")
 	}
-	go removeCache()
+	go removeCache(Context)
 	log.Println("start download")
 	previous := time.Now()
+
 	for key, meta := range Context.fileNames {
 		if checkBlockStat(key, meta) {
 			continue
 		}
 		log.Println("file", key, "start", meta.end-meta.start+1)
 		group.Add(1)
-		go goBT(Context.file.url, key, meta)
+		go func(pi chan string, url string, address string, b *block, attempt int) {
+			defer group.Done()
+			goBT(pi, url, address, b, attempt)
+		}(Context.Pi, Context.file.url, key, meta, int(Context.Attempt))
 	}
 	time.Sleep(2 * time.Second)
-	goBar(Context.file.length, previous)
+	goBar(Context, Context.file.length, previous)
 	group.Wait()
 	//log.Println("start unzip")
 	err = createFileOnly(Context.file.filePath)
@@ -49,11 +48,11 @@ func Download(url string) (err error) {
 			return
 		}
 		if i == 0 {
-			exit <- true
+			Context.Exit <- true
 		}
 	}
 
-	flag := <-exit
+	flag := <-Context.Exit
 	if flag {
 		for _, file := range Context.tempList {
 			deleteFile(file)
@@ -64,7 +63,7 @@ func Download(url string) (err error) {
 	log.Println("download request failed,please retry")
 	return
 }
-func goBT(url string, address string, b *block) {
+func goBT(pi chan string, url string, address string, b *block, attempt int) {
 	l, err := sendGet(url, address, b.start, b.end)
 	if err != nil || l != (b.end-b.start+1) {
 		log.Println("下载重试中")
@@ -74,22 +73,20 @@ func goBT(url string, address string, b *block) {
 		}
 		if b.count <= attempt {
 			b.count++
-			goBT(url, address, b)
+			goBT(pi, url, address, b, attempt)
 		}
 	}
-	if err == nil {
-		group.Done()
-	}
+	return
 }
-func removeCache() {
+func removeCache(context2 *context) {
 	for {
 		select {
-		case str := <-pi:
-			p := filePath(str)
+		case str := <-context2.Pi:
+			p := filePath(context2.TmpPath, str)
 			deleteFile(p)
-			exit <- false
-			exitSub <- false
-		case <-exitSub:
+			context2.Exit <- false
+			context2.ExitSub <- false
+		case <-context2.ExitSub:
 			break
 		}
 	}
@@ -106,7 +103,7 @@ func bar(count, size int) string {
 	return str
 }
 
-func goBar(length int64, t time.Time) {
+func goBar(Context *context, length int64, t time.Time) {
 	for {
 		var sum int64 = 0
 		for key, _ := range Context.fileNames {
