@@ -313,10 +313,14 @@ func filePath(root, id string) string {
 	}
 	return file
 }
-func getFileSize(file string) int64 {
+func getFileSize(file string) (int64, error) {
 	if !checkFileStat(file) {
-		return 0
+		return 0, nil
 	}
-	fi, _ := os.Stat(file)
-	return fi.Size()
+	fi, err := os.Stat(file)
+	if err != nil {
+		log.Println("stat err", file, err)
+		return 0, err
+	}
+	return fi.Size(), nil
 }

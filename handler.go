@@ -66,6 +66,9 @@ func Download(url string, thread int64, manual bool, root string, blockSize int6
 func goBT(pi chan string, url string, address string, b *block, attempt int) {
 	l, err := sendGet(url, address, b.start, b.end)
 	if err != nil || l != (b.end-b.start+1) {
+		if err != nil {
+			log.Printf("%v ||", err)
+		}
 		log.Println("下载重试中")
 		if b.count > attempt {
 			pi <- b.id
@@ -107,7 +110,11 @@ func goBar(Context *context, length int64, t time.Time) {
 	for {
 		var sum int64 = 0
 		for key, _ := range Context.fileNames {
-			sum += getFileSize(key)
+			s, err := getFileSize(key)
+			if err != nil {
+				return
+			}
+			sum += s
 		}
 		percent := getPercent(sum, length)
 		result, _ := strconv.Atoi(percent)
