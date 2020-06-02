@@ -19,9 +19,15 @@ func sendGet(url string, address string, start int64, end int64) (len int64, err
 	client := &http.Client{Transport: tr}
 	var resp *http.Response
 	resp, err = client.Do(req)
+	if err != nil {
+		return 0, err
+	}
 	defer resp.Body.Close()
 	file, err := createFile(address)
 	len, err = io.Copy(file, resp.Body)
+	if err != nil {
+		return 0, err
+	}
 	return len, err
 }
 
